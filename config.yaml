@@ -1,0 +1,116 @@
+# ---------------------------------------------------------------------------
+# Sector ETF Breakout & Rotation Dashboard — single source of truth.
+# Engine code reads every number from here. There are no magic numbers in
+# backend/engine/. If you want to change behaviour, change it in this file.
+# ---------------------------------------------------------------------------
+
+universe:
+  benchmark: SPY
+  # Cap-weight sector ETF -> equal-weight twin (used by the breadth filter).
+  sectors:
+    - symbol: XLB
+      name: Materials
+      equal_weight: RSPM
+    - symbol: XLC
+      name: Communication Services
+      equal_weight: RSPC
+    - symbol: XLE
+      name: Energy
+      equal_weight: RSPG
+    - symbol: XLF
+      name: Financials
+      equal_weight: RSPF
+    - symbol: XLI
+      name: Industrials
+      equal_weight: RSPN
+    - symbol: XLK
+      name: Technology
+      equal_weight: RSPT
+    - symbol: XLP
+      name: Consumer Staples
+      equal_weight: RSPS
+    - symbol: XLRE
+      name: Real Estate
+      equal_weight: RSPR
+    - symbol: XLU
+      name: Utilities
+      equal_weight: RSPU
+    - symbol: XLV
+      name: Health Care
+      equal_weight: RSPH
+    - symbol: XLY
+      name: Consumer Discretionary
+      equal_weight: RSPD
+
+data:
+  provider: yfinance          # yfinance | schwab
+  backfill_years: 5
+  # Ingest validation. A symbol failing any of these is quarantined and no
+  # signals are computed for it that run.
+  validation:
+    max_gap_trading_days: 5
+    allow_zero_volume: true   # some ETFs legitimately print 0 volume on holidays
+    # Relative tolerance for the OHLC envelope check. Adjusted prices are
+    # floating-point products of an adjustment factor, so a bar where
+    # close == low can sit a few ULPs (~1e-16 relative) outside its own range.
+    envelope_rtol: 1.0e-9
+    # A change in the historical adjusted close beyond this relative tolerance
+    # implies a split/dividend adjustment-factor change -> full re-pull.
+    adjustment_rtol: 0.001
+    adjustment_check_bars: 60 # how far back to compare on incremental updates
+
+engine:
+  atr:
+    period: 20                # N for the "default" ATR (Wilder)
+  beta:
+    window: 60                # rolling window for Cov/Var
+    residual_base: 100.0      # R_0 level for the synthetic residual price series
+  channel:
+    horizons: [10, 20, 55]    # term structure. NOT averaged into a composite.
+    state_horizon: 20         # which horizon drives the state machine
+    clip: 1.5                 # clip c_t to +/- this
+    # EWM smoothing span = max(ewm_span_floor, N // ewm_span_divisor)
+    ewm_span_floor: 2
+    ewm_span_divisor: 4
+  rvol:
+    span: 20
+  breadth:
+    horizon: 20               # N used for both cap-weight and equal-weight signal
+    narrow_threshold: 0.30    # equal-weight signal below this while cap confirms -> NARROW
+
+state_machine:
+  pending_entry: 0.90         # |signal| above this: NEUTRAL -> PENDING_*
+  pending_exit: 0.50          # |signal| below this: PENDING_* -> NEUTRAL
+  confirmed_exit: 0.30        # |signal| below this: CONFIRMED_* -> NEUTRAL
+  # Asymmetric entry/exit (0.90 in, 0.30 out) is mandatory. Symmetric
+  # thresholds produce state chatter at the boundary.
+  confirm_consecutive_closes: 2
+  confirm_rvol: 1.3
+  fail_window_bars: 5         # CONFIRMED_* -> FAILED_* if signal crosses 0 within this many bars
+  failed_cooldown_bars: 10    # FAILED_* -> NEUTRAL after this many bars
+
+regime:
+  dispersion:
+    smoothing_window: 20      # rolling mean of cross-sectional stdev
+    percentile_window: 756    # ~3y trailing percentile rank
+    low_threshold: 25.0       # below this percentile -> gray out the relative plane
+  correlation:
+    window: 60                # rolling correlation matrix window
+    sparkline_bars: 120
+
+rrg:
+  window: 60                  # SMA / StDev window for both normalisation passes
+  origin: 100.0
+  offset: 101.0
+  tail_length: 10             # trailing daily points retained per sector
+
+api:
+  default_history_days: 250
+  max_history_days: 2520
+
+scheduler:
+  enabled: true
+  # Daily, after the US close + settlement of adjusted closes.
+  hour: 18
+  minute: 30
+  timezone: America/New_York

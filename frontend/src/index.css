@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-term-bg text-term-text font-sans antialiased;
+    /* Tabular figures everywhere: columns of numbers must align. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Terminal-density scrollbars. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-term-bg;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-term-border;
+    border-radius: 0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-term-dim;
+  }
+
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
