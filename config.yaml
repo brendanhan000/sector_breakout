@@ -41,6 +41,8 @@ universe:
     - symbol: XLY
       name: Consumer Discretionary
       equal_weight: RSPD
+    - symbol: SOXX
+      name: Semiconductors  # thematic, no equal-weight twin -> no breadth
 
 data:
   provider: yfinance          # yfinance | schwab

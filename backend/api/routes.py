@@ -123,18 +123,20 @@ def _plane_view(plane: str, signal, state, close, horizons, state_horizon) -> Pl
     if signal is None:
         return None
 
-    term = [
-        HorizonPoint(
-            horizon=h,
-            signal=(signal.term.get(str(h)) or {}).get("signal"),
-            c=(signal.term.get(str(h)) or {}).get("c"),
-            z_up=(signal.term.get(str(h)) or {}).get("z_up"),
-            z_dn=(signal.term.get(str(h)) or {}).get("z_dn"),
-            channel_max=(signal.term.get(str(h)) or {}).get("max"),
-            channel_min=(signal.term.get(str(h)) or {}).get("min"),
+    term = []
+    for h in horizons:
+        at = signal.term.get(str(h)) or {}
+        term.append(
+            HorizonPoint(
+                horizon=h,
+                signal=at.get("signal"),
+                c=at.get("c"),
+                z_up=at.get("z_up"),
+                z_dn=at.get("z_dn"),
+                channel_max=at.get("max"),
+                channel_min=at.get("min"),
+            )
         )
-        for h in horizons
-    ]
     at_state = signal.term.get(str(state_horizon)) or {}
 
     return PlaneView(

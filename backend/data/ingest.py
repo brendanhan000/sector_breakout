@@ -14,10 +14,9 @@ from dataclasses import dataclass, field
 
 import pandas as pd
 from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from backend.db import persist as db_persist
 from backend.db.models import Bar
 from backend.settings import AppConfig
 
@@ -71,8 +70,8 @@ def latest_stored_date(session: Session, symbol: str) -> dt.date | None:
 def upsert_bars(session: Session, symbol: str, frame: pd.DataFrame, provider_name: str) -> int:
     """Insert-or-update on (symbol, date). Returns the number of rows written.
 
-    Uses the dialect's native upsert so a re-run is a single statement rather
-    than a read-modify-write race.
+    Delegates to the same dialect-native upsert helper the pipeline persistence
+    layer uses, so there is one place that knows how to do a keyed upsert.
     """
     if frame.empty:
         return 0
@@ -91,27 +90,7 @@ def upsert_bars(session: Session, symbol: str, frame: pd.DataFrame, provider_nam
         for index, row in frame.iterrows()
     ]
 
-    dialect = session.get_bind().dialect.name
-    if dialect == "postgresql":
-        stmt = pg_insert(Bar).values(payload)
-    elif dialect == "sqlite":
-        stmt = sqlite_insert(Bar).values(payload)
-    else:  # pragma: no cover — no other dialect is supported
-        raise RuntimeError(f"upsert is not implemented for dialect {dialect!r}")
-
-    stmt = stmt.on_conflict_do_update(
-        index_elements=["symbol", "date"],
-        set_={
-            "open": stmt.excluded.open,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "close": stmt.excluded.close,
-            "volume": stmt.excluded.volume,
-            "provider": stmt.excluded.provider,
-        },
-    )
-    session.execute(stmt)
-    return len(payload)
+    return db_persist._upsert(session, Bar, payload, ["symbol", "date"])
 
 
 def delete_symbol(session: Session, symbol: str) -> None:

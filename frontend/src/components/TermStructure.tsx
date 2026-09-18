@@ -4,8 +4,10 @@ import { TERM_SHAPE_LABEL, readTermShape, signalColor } from '../lib/signals';
 
 interface Props {
   term: HorizonPoint[];
-  clip?: number;
 }
+
+// Signal magnitude beyond this is rendered as fully saturated.
+const CLIP = 1.5;
 
 /**
  * The three horizons as a compact three-dot indicator, short to long.
@@ -15,9 +17,9 @@ interface Props {
  * is a pullback inside an uptrend (the good entry); all three pinned is
  * extended. A composite number erases every one of those distinctions.
  */
-export function TermStructure({ term, clip = 1.5 }: Props) {
+export function TermStructure({ term }: Props) {
   const sorted = [...term].sort((a, b) => a.horizon - b.horizon);
-  const shape = readTermShape(sorted, clip);
+  const shape = readTermShape(sorted, CLIP);
 
   return (
     <span
@@ -30,7 +32,7 @@ export function TermStructure({ term, clip = 1.5 }: Props) {
     >
       {sorted.map((point) => {
         const value = point.signal ?? 0;
-        const magnitude = Math.min(Math.abs(value) / clip, 1);
+        const magnitude = Math.min(Math.abs(value) / CLIP, 1);
         return (
           <span
             key={point.horizon}

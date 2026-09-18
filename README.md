@@ -1,6 +1,6 @@
 # Sector ETF Breakout & Rotation Dashboard
 
-Detects upward and downward breakouts across the 11 SPDR sector ETFs on **two
+Detects upward and downward breakouts across the 11 SPDR sector ETFs (plus SOXX, semiconductors) on **two
 independent planes**:
 
 | Plane | Measures | Answers |
@@ -18,47 +18,336 @@ selloff. Rows where the planes disagree are visually emphasised in the grid.
 
 ---
 
-## Quick start
+## Running it — step by step
 
-Requires **Python 3.11+** (the engine uses `StrEnum` and PEP 604 unions).
+Every command below is meant to be copy-pasted from the **repository root**
+(the directory containing `config.yaml`). Each step lists what success looks
+like, so you can tell immediately whether to continue.
+
+Timings below are from a real run on an M-series Mac. Budget **3–5 minutes**
+the first time; most of it is downloading Python and npm packages. Subsequent
+starts take seconds.
+
+**Shortcut:** `./run.sh` does all of the below (setup on first run, data refresh, API + UI, opens the browser; Ctrl-C stops it). `./run.sh fast` skips the refresh.
+
+### All the commands, in order
+
+If you just want to paste and go, this is the whole thing. Each line is
+explained in the steps that follow.
+
+```bash
+cd ~/Desktop/Quant_Projects/sector_breakout   # 1. repo root
+
+python3 -m venv .venv                          # 2. install
+.venv/bin/python -m pip install -e ".[dev]"
+
+echo 'SECTOR_DATABASE_URL=sqlite:///./sector_breakout.db' > .env
+.venv/bin/alembic upgrade head                 # 3. schema
+
+.venv/bin/sector refresh                       # 4. load 5y of data
+.venv/bin/sector status                        #    should say SUCCESS, 24/24
+
+.venv/bin/uvicorn backend.api.app:app --factory --port 8000   # 5. leave running
+```
+
+Then in a **second terminal**:
+
+```bash
+cd ~/Desktop/Quant_Projects/sector_breakout/frontend
+npm install
+npm run dev                                    # 6. leave running
+```
+
+Open **http://localhost:5173** (not `127.0.0.1`).
+
+> Every command must be typed in full. `.env`, `cli refresh` and
+> `alembic upgrade head` on their own are not commands — the leading
+> `.venv/bin/...` is part of them unless you have activated the venv.
+
+---
+
+### Step 0 — Check prerequisites
+
+```bash
+python3 --version   # need 3.11 or newer
+node --version      # need 20 or newer
+```
+
+**Python 3.11+** is required (the engine uses `StrEnum` and PEP 604 unions).
+**Node 20+** is required only for the dashboard UI; the backend and API run
+without it.
+
+<details>
+<summary>If <code>python3</code> is missing or older than 3.11</summary>
+
+Download the macOS installer from [python.org/downloads](https://www.python.org/downloads/),
+or use whichever Python you already manage (pyenv, conda, Homebrew). Anaconda's
+`base` environment ships a recent Python and works fine as the base interpreter
+for the virtualenv in Step 2.
+</details>
+
+<details>
+<summary>If <code>node</code> is missing (<code>command not found: node</code>)</summary>
+
+`nvm` needs no admin password and keeps everything under `~/.nvm`:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"
+nvm install --lts
+```
+
+The installer appends three lines to `~/.zshrc`, so **open a new terminal**
+afterwards — or run the `export`/`.` pair above in each existing terminal.
+Verify with `node --version`.
+
+To remove it later: `rm -rf ~/.nvm`, then delete the three nvm lines from
+`~/.zshrc`.
+</details>
+
+---
+
+### Step 1 — Go to the repository root
+
+```bash
+cd ~/Desktop/Quant_Projects/sector_breakout
+```
+
+Adjust the path if you cloned it elsewhere. Confirm you are in the right place:
+
+```bash
+ls config.yaml pyproject.toml
+```
+
+> Both filenames should echo back. `no such file or directory` means you are in
+> the wrong directory — every later step will fail.
+
+---
+
+### Step 2 — Create the virtualenv and install
 
 ```bash
 python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
 .venv/bin/python -m pip install -e ".[dev]"
 ```
 
-Then run everything through `.venv/bin/python` (or `source .venv/bin/activate`
-first). The `python -m pip` form above is deliberate — see *Troubleshooting*.
+Verify:
 
-Point it at a database and apply migrations. **SQLite needs no server** and is
-the fastest way to see the dashboard working:
+```bash
+.venv/bin/python -m pip show sector-breakout | head -2
+```
+
+> ```
+> Name: sector-breakout
+> Version: 0.1.0
+> ```
+
+**Use `.venv/bin/python -m pip`, not a bare `pip`.** macOS ships
+`/usr/bin/pip3` bound to Python 3.9, and a past `pip3 install --user` leaves a
+`~/Library/Python/3.9/bin` on `PATH` that can beat an activated virtualenv —
+especially if conda's `base` is activated afterwards, since conda prepends its
+own `bin`. `python -m pip` always installs into the interpreter that ran it and
+cannot be shadowed. If you saw
+`requires a different Python: 3.9.6 not in '>=3.11'`, this was why.
+
+You may `source .venv/bin/activate` if you prefer. The explicit `.venv/bin/...`
+prefixes below work either way and are unambiguous; with the venv activated you
+can drop them and just write `alembic`, `sector`, `uvicorn`, `pytest`.
+
+Installing also puts a `sector` command in the venv — that is the CLI used in
+Steps 4 onwards.
+
+---
+
+### Step 3 — Point it at a database and create the schema
+
+SQLite needs no server and is the fastest way to get running:
 
 ```bash
 echo 'SECTOR_DATABASE_URL=sqlite:///./sector_breakout.db' > .env
-.venv/bin/alembic -c backend/db/alembic.ini upgrade head
+.venv/bin/alembic upgrade head
 ```
 
-PostgreSQL is the production target — see *Storage* below for both.
+> ```
+> INFO  [alembic.runtime.migration] Running upgrade  -> ef52ef0e70f4, initial schema
+> ```
 
-Run the first refresh (backfills 5 years, computes every signal, persists):
+Verify all six tables exist:
 
 ```bash
-.venv/bin/python -m backend.jobs.cli refresh
+.venv/bin/python -c "import sqlite3; print(sorted(r[0] for r in sqlite3.connect('sector_breakout.db').execute(\"select name from sqlite_master where type='table'\")))"
 ```
 
-Serve the API:
+> ```
+> ['alembic_version', 'bars', 'regime', 'rrg', 'run_log', 'signals', 'states']
+> ```
+
+`.env` is gitignored. PostgreSQL is the production target — see *Storage* below
+for how to switch.
+
+---
+
+### Step 4 — Load the data
+
+Downloads 5 years of daily bars for 24 symbols from Yahoo, validates them,
+computes every signal on both planes, and persists the result.
+
+```bash
+.venv/bin/sector refresh
+```
+
+Takes roughly **15–25 seconds**, most of it downloading from Yahoo, and prints a
+run UUID on success. A few `OPEN_OUTSIDE_RANGE` warnings for the equal-weight
+ETFs are expected and harmless — see *Validation and quarantine*.
+
+Verify:
+
+```bash
+.venv/bin/sector status
+```
+
+> ```json
+> {
+>   "run_id": "…",
+>   "status": "SUCCESS",
+>   "as_of": "2026-09-02",
+>   "data_quality": "OK",
+>   "symbols": "24/24",
+>   "bars_upserted": 28957,
+>   "quarantined": [],
+>   ...
+> }
+> ```
+>
+> Your `as_of` will be the latest trading day and `bars_upserted` will be near
+> 29,000; the exact numbers move daily.
+
+`"status": "SUCCESS"` and `"symbols": "24/24"` mean you are ready. `PARTIAL`
+with entries in `quarantined` means some symbols failed validation; the
+dashboard still works but reports `data_quality: DEGRADED`.
+
+---
+
+### Step 5 — Start the API (leave this terminal running)
 
 ```bash
 .venv/bin/uvicorn backend.api.app:app --factory --port 8000
 ```
 
-Serve the dashboard:
+> ```
+> INFO:     Uvicorn running on http://127.0.0.1:8000
+> ```
+
+Check it from **a second terminal**:
 
 ```bash
-cd frontend && npm install && npm run dev
+curl -s http://127.0.0.1:8000/api/health
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to port 8000.
+> ```json
+> {"as_of":"2026-09-02","data_quality":"OK","status":"ok","database":true,…}
+> ```
+
+Interactive API docs: **http://127.0.0.1:8000/docs**
+
+If you only want the data and not the UI, you can stop here.
+
+---
+
+### Step 6 — Start the dashboard (a second terminal)
+
+```bash
+cd ~/vault/raw/repos/sector_breakout/frontend
+npm install       # first time only: 1-2 min cold, seconds if npm has cached
+npm run dev
+```
+
+> ```
+> VITE v5.4.21  ready in 107 ms
+> ➜  Local:   http://localhost:5173/
+> ```
+
+If `npm` is not found in this new terminal and you installed Node via nvm in
+Step 0, either open a fresh terminal or run:
+
+```bash
+export NVM_DIR="$HOME/.nvm" && . "$NVM_DIR/nvm.sh"
+```
+
+---
+
+### Step 7 — Open it
+
+**http://localhost:5173**
+
+> Use `localhost`, **not** `127.0.0.1`. Vite binds IPv6 (`[::1]:5173`), so
+> `127.0.0.1:5173` refuses the connection. The dev server proxies `/api` to the
+> API on port 8000, so both terminals must be running.
+
+You should see, top to bottom: the regime header (SPY state, dispersion gauge,
+correlation sparkline, `as_of` date), the RRG panel with 12 labelled sectors and
+their 10-day tails, and the state grid with 12 rows × 2 planes. Click any row or
+any point on the RRG to open the detail drawer.
+
+---
+
+### Running it again
+
+The data only changes once a day. To refresh:
+
+```bash
+.venv/bin/sector refresh
+```
+
+…or click **Refresh** in the dashboard header, or `POST /api/refresh`. Re-runs
+are idempotent — running it five times in a row produces exactly the same
+database as running it once.
+
+You do not need to repeat Steps 2–4 on later sessions. Just Step 5 and Step 6:
+
+```bash
+# terminal 1
+cd ~/Desktop/Quant_Projects/sector_breakout && .venv/bin/uvicorn backend.api.app:app --factory --port 8000
+
+# terminal 2
+cd ~/Desktop/Quant_Projects/sector_breakout/frontend && npm run dev
+```
+
+**Stopping:** `Ctrl-C` in each terminal.
+
+**Starting completely over:** `rm sector_breakout.db` and repeat from Step 3.
+
+---
+
+### Running the tests
+
+```bash
+.venv/bin/python -m pytest                          # 246 tests
+.venv/bin/python -m pytest --cov=backend/engine     # with coverage (~99%)
+cd frontend && npm test                             # 56 tests
+```
+
+---
+
+### If something goes wrong
+
+| Symptom | Cause and fix |
+|---|---|
+| `requires a different Python: 3.9.6 not in '>=3.11'` | A bare `pip` resolved outside the venv. Use `.venv/bin/python -m pip …` (Step 2). |
+| `createdb: command not found` | PostgreSQL is not installed. You do not need it — use the SQLite line in Step 3. |
+| `command not found: node` / `npm` | Node is not installed, or nvm is not loaded in this terminal. See Step 0. |
+| `cd: no such file or directory: frontend` | You are not in the repository root. Run Step 1 first. |
+| `zsh: command not found: .env` | `.env` is a file, not a command. The Step 3 line begins with `echo '...' > .env`. |
+| `zsh: command not found: cli` | The command is `.venv/bin/sector refresh`, or `sector refresh` with the venv activated. |
+| `FAILED: No 'script_location' key found` | `alembic` was run from outside the repository root, so it could not find `alembic.ini`. `cd` to the root first. |
+| `command not found: sector` | The venv is not activated and you dropped the prefix. Use `.venv/bin/sector`, or re-run Step 2 if you installed before this command existed. |
+| Connection refused on `127.0.0.1:5173` | Vite binds IPv6. Use `http://localhost:5173`. |
+| Dashboard shows *"No completed run yet"* | Step 4 has not run, or it failed. Check `.venv/bin/sector status`. |
+| Every API endpoint returns `503` | Same as above — the API refuses to serve a partially computed day. |
+| Dashboard loads but panels are empty | The API is not running, or not on port 8000. Check `curl http://127.0.0.1:8000/api/health`. |
+| Header shows `STALE` | The last successful run is more than a working week old. Re-run Step 4. |
+| Header shows `DEGRADED` | A symbol failed validation. `…cli status` lists which under `quarantined`. |
 
 ---
 
@@ -75,7 +364,7 @@ plain JSON elsewhere. Both back ends are real options:
 | Concurrency | single writer | fine |
 | Suitable for | development, a single-user desktop dashboard | production |
 
-For a read-only daily-bar dashboard at 23 symbols × 1 write/day, SQLite is
+For a read-only daily-bar dashboard at 24 symbols × 1 write/day, SQLite is
 genuinely adequate. PostgreSQL is the documented target and what the type
 choices are tuned for.
 
@@ -107,8 +396,8 @@ Then:
 ```bash
 createdb sector_breakout
 # switch the line in .env, then:
-.venv/bin/alembic -c backend/db/alembic.ini upgrade head
-.venv/bin/python -m backend.jobs.cli refresh
+.venv/bin/alembic upgrade head
+.venv/bin/sector refresh
 ```
 
 > **Caveat.** Everything in this repo — the full test suite, migrations up and
@@ -133,28 +422,15 @@ Secrets never go in `config.yaml`. They come from the environment, prefixed
 | `SECTOR_DATABASE_URL` | SQLAlchemy URL | yes |
 | `SECTOR_CONFIG_PATH` | override config.yaml location | no |
 | `SECTOR_LOG_LEVEL` | default `INFO` | no |
-| `SECTOR_SCHWAB_CLIENT_ID` | Schwab app key | Schwab only |
-| `SECTOR_SCHWAB_CLIENT_SECRET` | Schwab app secret | Schwab only |
-| `SECTOR_SCHWAB_REFRESH_TOKEN` | OAuth2 refresh token | Schwab only |
-| `SECTOR_SCHWAB_BASE_URL` | default `https://api.schwabapi.com` | no |
-| `SECTOR_SCHWAB_TOKEN_URL` | default `.../v1/oauth/token` | no |
+| `SECTOR_SCHWAB_HUB_URL` | schwab_hub address, default `http://127.0.0.1:8765` | no |
 
 ### Switching to Schwab
 
-1. Register an app at [developer.schwab.com](https://developer.schwab.com) with
-   the **Accounts and Trading Production** product and a callback URL of
-   `https://127.0.0.1`.
-2. Complete the three-legged OAuth flow once to obtain a **refresh token**.
-   Schwab refresh tokens expire every **7 days** — renewing them is a manual
-   step, by design on Schwab's side.
-3. Export the three `SECTOR_SCHWAB_*` variables above.
-4. Set `data.provider: schwab` in `config.yaml`.
+Schwab data comes from the central **schwab_hub** (`../schwab_hub`), which owns
+the credentials and the 7-day token renewal. This repo holds no Schwab secrets.
 
-The access-token handshake sits behind the `TokenProvider` interface
-(`backend/data/schwab_provider.py`), so it can be substituted in tests without a
-live account. Tokens are cached in memory only — a token written to disk is a
-credential written to disk. Token-refresh failures deliberately do not echo the
-response body, which can contain the credential that was just rejected.
+1. Start the hub: `../schwab_hub/run.sh` (first time: `../schwab_hub/run.sh login`).
+2. Set `data.provider: schwab` in `config.yaml`.
 
 ---
 
@@ -273,11 +549,27 @@ sector. It is a distinct badge in the grid, not a tooltip. Breadth is measured o
 the absolute plane for both planes' badges: "is the whole sector moving?" is a
 question about constituents, not about the residual construction.
 
+`equal_weight` is optional per sector in `config.yaml`. A sector with no twin (currently
+SOXX, a thematic ETF) simply has no breadth signal and is never flagged NARROW.
+
 **Persistence:** confirmation uses closes, never intraday touches, and requires
 **two consecutive closes** beyond the level. A close exactly *at* the prior high
 has not broken it (strict inequality).
 
 ### 6. State machine — `engine/state.py`
+
+> **Observed behaviour worth knowing:** `FAILED_*` fired **zero times** across
+> five years of real data (11 sectors × 2 planes, 129 confirmations). That is
+> not a defect — it follows from the specified transition table. `CONFIRMED_UP →
+> NEUTRAL when signal < +0.30` intercepts almost every reversal before it can
+> reach `signal < 0`, so `FAILED_UP` is only reachable when the signal jumps
+> from above +0.30 to below 0 in a *single* bar. The closest real approach was
+> XLRE on 2025-03-03, which faded to NEUTRAL on 03-07 and only crossed zero on
+> 03-10 — three days too late to count. If you want `FAILED_*` to fire on
+> ordinary reversals rather than only on outright single-bar collapses, the
+> machine needs to allow `NEUTRAL → FAILED_*` within `fail_window_bars` of a
+> confirmation; that is a change to the specified state machine, so it is not
+> made here.
 
 Per sector, per plane, at N=20.
 
@@ -314,11 +606,11 @@ distinguishable from "faded".
 
 ```
 spy_state  = state machine on SPY, Plane A
-dispersion = cross-sectional stdev of the 11 sector daily returns
+dispersion = cross-sectional stdev of the 12 sector daily returns
            → 20-day rolling mean
            → percentile rank over trailing 756 bars (3y)
 correlation = mean of off-diagonal elements of the 60-day rolling
-              correlation matrix of the 11 sectors
+              correlation matrix of the 12 sectors
 ```
 
 **When `dispersion_percentile < 25`, the entire relative plane grays itself out**
@@ -381,7 +673,7 @@ oldest-first so direction renders correctly.
 * **`YFinanceProvider`** — default. `auto_adjust=True`, so OHLC is adjusted for
   splits *and* dividends. Unadjusted history shows every dividend ex-date as a
   gap the channel logic cannot distinguish from a breakdown.
-* **`SchwabProvider`** — `/marketdata/v1/pricehistory`, OAuth2 refresh-token flow.
+* **`SchwabProvider`** — `/marketdata/v1/pricehistory`, via the local schwab_hub.
 
 ### Ingest
 
@@ -458,10 +750,11 @@ to add a "composite" column by accident.
 | `GET /api/regime` | dispersion, correlation + sparkline, SPY state |
 | `GET /api/sectors` | current state, both planes, all 3 horizons |
 | `GET /api/sectors/{symbol}/history?days=250&plane=` | full signal time series + transitions |
-| `GET /api/rrg` | coordinates + 10-day tails for all 11 |
+| `GET /api/rrg` | coordinates + 10-day tails for all 12 |
 | `GET /api/leaderboard?plane=relative` | sorted by `z_up` |
 | `POST /api/refresh` | triggers ingest + recompute, returns `run_id` |
 | `GET /api/runs/{run_id}` | job status |
+| `GET /api/runs?limit=20` | recent run history, newest first |
 
 **Every payload carries `as_of` and `data_quality`.** A number on a trading
 dashboard without a date is not information.
@@ -483,7 +776,7 @@ One APScheduler cron job, weekdays at 18:30 America/New_York (in `config.yaml`).
 `coalesce=True` and `max_instances=1` mean a missed day produces one catch-up
 run, never a burst, and two refreshes can never overlap.
 
-That is the entire scheduling layer, deliberately. The workload is 23 symbols
+That is the entire scheduling layer, deliberately. The workload is 24 symbols
 once a day; a message bus or streaming framework here would be architecture for
 its own sake and would add failure modes a single cron-shaped job does not have.
 
@@ -491,20 +784,14 @@ its own sake and would add failure modes a single cron-shaped job does not have.
 
 ## Testing
 
-```bash
-.venv/bin/python -m pytest                          # backend
-.venv/bin/python -m pytest --cov=backend/engine     # with coverage
-cd frontend && npm test                             # frontend
-```
-
-The suite that matters:
+Commands are in *Running the tests* above. What the suite actually covers:
 
 1. **No-look-ahead** (`test_no_lookahead.py`) — computes every signal on the full
    series, truncates the input to `T−k` for k ∈ {1, 5, 20, 60}, recomputes, and
    asserts every historical value is **bit-identical**. Not approximately equal:
    these are the same operations on the same float64 inputs in the same order, so
    any tolerance would only hide a real leak. Covers every component and the full
-   pipeline, both planes, all 11 sectors.
+   pipeline, both planes, all 12 sectors.
 2. **Synthetic series** (`test_synthetic.py`) — step, ramp, sine and random walk,
    each with an analytically derivable answer.
 3. **ATR reference** (`test_atr.py`) — hand-computed against a 20-bar integer
@@ -550,38 +837,22 @@ separate test documents that skew rather than hiding it.
 
 ---
 
-## Troubleshooting
+## Dependency versions
 
-**`ERROR: Package 'sector-breakout' requires a different Python: 3.9.6 not in '>=3.11'`**
-
-A bare `pip` resolved to a Python outside the virtualenv. macOS ships
-`/usr/bin/pip3` bound to Python 3.9, and a past `pip3 install --user` leaves a
-`~/Library/Python/3.9/bin` on `PATH` that can win over an activated venv —
-especially when conda's `base` is activated *after* the venv, since conda
-prepends its own `bin` to `PATH`.
-
-Check what you actually have:
-
-```bash
-which -a pip pip3 python3 && python3 -c "import sys; print(sys.executable, sys.version)"
-```
-
-The fix is to never rely on a bare `pip`. Call the interpreter you mean:
-
-```bash
-.venv/bin/python -m pip install -e ".[dev]"
-```
-
-`python -m pip` always installs into the interpreter that ran it, so it cannot
-be shadowed by a stray script on `PATH`.
-
-**Verified dependency versions.** The suite and a live 23-symbol backfill were
-run against both `pandas 2.3.3 / numpy 2.3.5 / pytest 8.4` and
+The suite and a live 23-symbol backfill were run against both
+`pandas 2.3.3 / numpy 2.3.5 / pytest 8.4` and
 `pandas 3.0.5 / numpy 2.5.2 / pytest 9.1`, producing byte-identical signal
 output. The floors in `pyproject.toml` are therefore left open rather than
-pinned, but pandas 3.0 is a major release — if you upgrade further, re-run
-`test_no_lookahead.py` first, since it is the test that would catch a silent
-change in rolling/EWM semantics.
+pinned.
+
+pandas 3.0 is a major release, so if you upgrade further, run
+`test_no_lookahead.py` first — it is the test that would catch a silent change
+in rolling or EWM semantics.
+
+Runtime versions verified end to end: Python 3.13.9, Node 24.20.0, npm 11.19.0.
+
+For anything that goes wrong during setup, see *If something goes wrong* at the
+end of the step-by-step guide above.
 
 ---
 
@@ -592,4 +863,4 @@ multi-user support, intraday/streaming updates, ML models, or alerting. This is 
 read-only daily-bar analytical dashboard.
 
 There is deliberately no Kafka, Spark, Redis, Docker Compose orchestration, or
-message bus. The workload is 23 symbols × 1 update/day.
+message bus. The workload is 24 symbols × 1 update/day.

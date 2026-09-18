@@ -107,7 +107,7 @@ class SectorSpec:
 
     symbol: str
     name: str
-    equal_weight: str
+    equal_weight: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +121,7 @@ class UniverseSpec:
 
     @property
     def equal_weight_symbols(self) -> tuple[str, ...]:
-        return tuple(s.equal_weight for s in self.sectors)
+        return tuple(s.equal_weight for s in self.sectors if s.equal_weight)
 
     @property
     def all_symbols(self) -> tuple[str, ...]:

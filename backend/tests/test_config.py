@@ -30,22 +30,22 @@ def test_shipped_config_parses_and_binds():
     assert isinstance(settings.universe, UniverseSpec)
 
 
-def test_universe_is_the_eleven_spdr_sectors_plus_benchmark():
+def test_universe_is_the_eleven_spdr_sectors_plus_soxx_plus_benchmark():
     universe = Settings(config_path=CONFIG_PATH).universe
     assert universe.benchmark == "SPY"
-    assert len(universe.sectors) == 11
+    assert len(universe.sectors) == 12
     assert set(universe.sector_symbols) == {
-        "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY",
+        "XLB", "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "SOXX",
     }
     assert set(universe.equal_weight_symbols) == {
         "RSPM", "RSPC", "RSPG", "RSPF", "RSPN", "RSPT", "RSPS", "RSPR", "RSPU", "RSPH", "RSPD",
     }
-    assert len(set(universe.all_symbols)) == 23
+    assert len(set(universe.all_symbols)) == 24
 
 
-def test_every_sector_has_a_distinct_equal_weight_twin():
+def test_every_sector_has_a_distinct_equal_weight_twin_where_present():
     universe = Settings(config_path=CONFIG_PATH).universe
-    twins = [s.equal_weight for s in universe.sectors]
+    twins = [s.equal_weight for s in universe.sectors if s.equal_weight]
     assert len(set(twins)) == len(twins)
     assert not set(twins) & set(universe.sector_symbols)
 
@@ -127,8 +127,8 @@ def test_engine_params_have_no_defaults():
         if not dataclasses.is_dataclass(obj) or not isinstance(obj, type):
             continue
         for field in dataclasses.fields(obj):
-            if name == "UniverseSpec":
-                continue
+            if name == "UniverseSpec" or (name, field.name) == ("SectorSpec", "equal_weight"):
+                continue  # optional twin is structure, not a threshold
             assert field.default is dataclasses.MISSING, (
                 f"{name}.{field.name} has a default of {field.default!r}"
             )

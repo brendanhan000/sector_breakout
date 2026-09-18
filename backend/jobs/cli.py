@@ -95,7 +95,10 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="backend.jobs.cli")
+    parser = argparse.ArgumentParser(
+        prog="sector",
+        description="Sector ETF breakout & rotation dashboard.",
+    )
     parser.add_argument("--log-level", default=None)
     sub = parser.add_subparsers(dest="command", required=True)
 

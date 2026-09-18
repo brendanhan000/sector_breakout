@@ -157,9 +157,9 @@ def test_regime_message_matches_the_specified_copy(client):
 
 
 # --------------------------------------------------------------------------- #
-def test_sectors_returns_all_eleven_on_both_planes(client):
+def test_sectors_returns_all_twelve_on_both_planes(client):
     body = client.get("/api/sectors").json()
-    assert len(body["sectors"]) == 11
+    assert len(body["sectors"]) == 12
     for row in body["sectors"]:
         assert row["absolute"] is not None
         assert row["relative"] is not None
@@ -250,7 +250,7 @@ def test_rrg_returns_all_sectors_with_tails(client):
     body = client.get("/api/rrg").json()
     assert body["origin"] == 100.0
     assert body["tail_length"] == 10
-    assert len(body["series"]) == 11
+    assert len(body["series"]) == 12
     for s in body["series"]:
         assert len(s["tail"]) == 10
         dates = [p["date"] for p in s["tail"]]
@@ -277,17 +277,17 @@ def test_rrg_quadrants_agree_with_the_coordinates(client):
 def test_leaderboard_is_sorted_by_extension_descending(client):
     body = client.get("/api/leaderboard").json()
     assert body["plane"] == "relative"
-    assert len(body["entries"]) == 11
+    assert len(body["entries"]) == 12
 
     scores = [e["z_up"] for e in body["entries"] if e["z_up"] is not None]
     assert scores == sorted(scores, reverse=True)
-    assert [e["rank"] for e in body["entries"]] == list(range(1, 12))
+    assert [e["rank"] for e in body["entries"]] == list(range(1, 13))
 
 
 def test_leaderboard_can_serve_the_absolute_plane(client):
     body = client.get("/api/leaderboard?plane=absolute").json()
     assert body["plane"] == "absolute"
-    assert len(body["entries"]) == 11
+    assert len(body["entries"]) == 12
 
 
 def test_leaderboard_rejects_an_unknown_plane(client):

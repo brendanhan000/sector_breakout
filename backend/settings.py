@@ -48,7 +48,7 @@ DEFAULT_CONFIG_PATH = REPO_ROOT / "config.yaml"
 class SectorConfig(BaseModel):
     symbol: str
     name: str
-    equal_weight: str
+    equal_weight: str | None = None  # None -> no breadth signal
 
 
 class UniverseConfig(BaseModel):
@@ -61,7 +61,7 @@ class UniverseConfig(BaseModel):
         syms = [s.symbol for s in v]
         if len(set(syms)) != len(syms):
             raise ValueError("duplicate sector symbols in universe")
-        ew = [s.equal_weight for s in v]
+        ew = [s.equal_weight for s in v if s.equal_weight]
         if len(set(ew)) != len(ew):
             raise ValueError("duplicate equal-weight symbols in universe")
         return v
@@ -219,13 +219,8 @@ class Settings(BaseSettings):
     config_path: Path = DEFAULT_CONFIG_PATH
     log_level: str = "INFO"
 
-    # Schwab Trader API. Absent by default — the yfinance provider needs none of
-    # these, and they must never appear in config.yaml or in git.
-    schwab_client_id: str | None = None
-    schwab_client_secret: str | None = None
-    schwab_refresh_token: str | None = None
-    schwab_base_url: str = "https://api.schwabapi.com"
-    schwab_token_url: str = "https://api.schwabapi.com/v1/oauth/token"
+    # Schwab data comes from the central schwab_hub, which owns all credentials.
+    schwab_hub_url: str = "http://127.0.0.1:8765"
 
     @property
     def config(self) -> AppConfig:

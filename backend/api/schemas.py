@@ -96,7 +96,7 @@ class PlaneView(BaseModel):
 class SectorRow(BaseModel):
     symbol: str
     name: str
-    equal_weight: str
+    equal_weight: str | None
     quarantined: bool = False
     absolute: PlaneView | None
     relative: PlaneView | None

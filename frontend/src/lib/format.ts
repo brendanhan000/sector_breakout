@@ -29,8 +29,7 @@ export function bars(value: number | null | undefined): string {
 
 export function shortDate(iso: string | null | undefined): string {
   if (!iso) return '—';
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${y}-${m}-${d}`;
+  return iso.slice(0, 10);
 }
 
 export function stateLabel(state: string | null | undefined): string {

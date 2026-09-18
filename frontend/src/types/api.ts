@@ -83,7 +83,7 @@ export interface PlaneView {
 export interface SectorRow {
   symbol: string;
   name: string;
-  equal_weight: string;
+  equal_weight: string | null;
   quarantined: boolean;
   absolute: PlaneView | null;
   relative: PlaneView | null;
